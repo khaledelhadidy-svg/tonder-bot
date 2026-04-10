@@ -39,7 +39,7 @@ def check_availability():
         # Look for days that are NOT disabled and NOT empty
         days = driver.find_elements(By.CSS_SELECTOR, ".day:not(.disabled):not(.empty)")
 
-        if len(days) > 0:
+        if True:  # Temporary test
             found_dates = [day.text.strip() for day in days if day.text.strip()]
             if found_dates:
                 message = f"🔔 SLOT FOUND! Dates available: {', '.join(found_dates)}\nLink: {URL}"

@@ -2,23 +2,24 @@ name: Tonder Slot Checker
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # This runs every 15 minutes
-  workflow_dispatch:      # This allows you to run it manually for testing
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4  # Updated to v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5 # Updated to v5
         with:
-          python-version: '3.9'
+          python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install selenium webdriver-manager requests
 
       - name: Run Monitor
         env:

@@ -76,6 +76,6 @@ if __name__ == "__main__":
     # --- HARD TEST ---
     # This ensures your Telegram setup works every time the script starts.
     # Once you receive a message and are confident, you can delete the line below.
-    send_telegram_msg("🤖 Bot is starting a new check...")
+    #send_telegram_msg("🤖 Bot is starting a new check...")
 
     check_availability()

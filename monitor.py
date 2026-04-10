@@ -1,3 +1,4 @@
+import os
 import time
 import requests
 from selenium import webdriver
@@ -10,44 +11,50 @@ from webdriver_manager.chrome import ChromeDriverManager
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
-CHECK_INTERVAL = 300  # Seconds between checks (300s = 5 minutes)
 
 def send_telegram_msg(text):
+    if not TELEGRAM_TOKEN or not CHAT_ID:
+        print("Error: Telegram credentials missing.")
+        return
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     params = {"chat_id": CHAT_ID, "text": text}
-    requests.get(msg_url, params=params)
+    try:
+        requests.get(msg_url, params=params)
+    except Exception as e:
+        print(f"Failed to send Telegram message: {e}")
 
 def check_availability():
-    # Setup Chrome options (Headless means no window pops up)
+    print("Checking for available slots...")
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
     try:
         driver.get(URL)
-        time.sleep(5)  # Wait for the calendar to load
+        time.sleep(7)  # Increased wait time for slow loading
 
-        # Find all calendar day elements
-        # Note: FrontDeskSuite usually marks available days with a specific class or lack of 'disabled'
+        # Look for days that are NOT disabled and NOT empty
         days = driver.find_elements(By.CSS_SELECTOR, ".day:not(.disabled):not(.empty)")
 
         if len(days) > 0:
-            found_dates = [day.text for day in days if day.text.strip()]
-            message = f"🔔 SLOT FOUND! The following dates seem available: {', '.join(found_dates)}\nLink: {URL}"
-            print(message)
-            send_telegram_msg(message)
+            found_dates = [day.text.strip() for day in days if day.text.strip()]
+            if found_dates:
+                message = f"🔔 SLOT FOUND! Dates available: {', '.join(found_dates)}\nLink: {URL}"
+                print(message)
+                send_telegram_msg(message)
+            else:
+                print("No text found in available day elements.")
         else:
             print("Checked: No slots available right now.")
 
     except Exception as e:
-        print(f"Error occurred: {e}")
+        print(f"Error occurred during check: {e}")
     finally:
         driver.quit()
 
 if __name__ == "__main__":
-    print("Bot started... Press Ctrl+C to stop.")
-    while True:
-        check_availability()
-        time.sleep(CHECK_INTERVAL)
+    # On GitHub Actions, we run once. The 'cron' schedule handles the repetition.
+    check_availability()

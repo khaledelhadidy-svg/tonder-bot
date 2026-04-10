@@ -7,8 +7,8 @@ from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- CONFIGURATION ---
-TELEGRAM_TOKEN = "8506189872:AAHK-x8ICGdaZW_if1yDXVNwrJGM8lUtqY4"
-CHAT_ID = "8662424755"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
 CHECK_INTERVAL = 300  # Seconds between checks (300s = 5 minutes)
 

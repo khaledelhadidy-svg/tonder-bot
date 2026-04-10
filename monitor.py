@@ -14,14 +14,17 @@ URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSel
 
 def send_telegram_msg(text):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Error: Telegram credentials missing.")
-        return
+        # This will now raise an error so we can see it in the logs
+        raise ValueError(f"MISSING CREDENTIALS! Token: {bool(TELEGRAM_TOKEN)}, ID: {bool(CHAT_ID)}")
+    
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     params = {"chat_id": CHAT_ID, "text": text}
-    try:
-        requests.get(msg_url, params=params)
-    except Exception as e:
-        print(f"Failed to send Telegram message: {e}")
+    
+    response = requests.get(msg_url, params=params)
+    if response.status_code != 200:
+        raise Exception(f"Telegram API Error: {response.text}")
+    else:
+        print("Telegram message sent successfully!")
 
 def check_availability():
     print("Checking for available slots...")

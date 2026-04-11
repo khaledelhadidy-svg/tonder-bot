@@ -2,20 +2,21 @@ name: Tonder Slot Checker
 
 on:
   schedule:
-    # We use "weird" minutes to avoid the 0, 5, 10 traffic jams
-    - cron: '4,14,24,34,44,54 * * * *'
-  watch:
-    types: [started] # <--- THIS IS THE MAGIC LINE
+    - cron: '4,19,34,49 * * * *' # Backup schedule
+  repository_dispatch:
+    types: [ping_from_cronjob] # This listens for the external alarm
   workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.2.2
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
       - name: Install dependencies

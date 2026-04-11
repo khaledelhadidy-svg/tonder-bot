@@ -76,7 +76,7 @@ def check_availability():
     except Exception as e:
         print(f"Check failed: {e}")
         # Optionally notify yourself if the bot crashes
-         send_telegram_msg(f"❌ Bot Error: {str(e)}")
+         #send_telegram_msg(f"❌ Bot Error: {str(e)}")
     finally:
         driver.quit()
 

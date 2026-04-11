@@ -2,13 +2,16 @@ name: Tonder Slot Checker
 
 on:
   schedule:
-    # This runs every 5 minutes at "off-peak" seconds (2, 7, 12, etc.)
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
-  workflow_dispatch: # Allows you to still run it manually
+    # Runs every 10 minutes - This is much more reliable on GitHub Actions
+    - cron: '*/10 * * * *'
+    
+  workflow_dispatch:   # Allows manual trigger from GitHub UI
 
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10   # Safety timeout in case Selenium hangs
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,4 +29,13 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python monitor.py
+        run: |
+          echo "======================================"
+          echo "Starting Tonder slot check at: $(date -u)"
+          echo "======================================"
+          
+          python monitor.py
+          
+          echo "======================================"
+          echo "Check finished at: $(date -u)"
+          echo "======================================"

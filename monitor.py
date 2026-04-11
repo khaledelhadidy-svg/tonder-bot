@@ -84,6 +84,6 @@ if __name__ == "__main__":
     # If you want to keep the "I am alive" message, keep the next 2 lines. 
     # Otherwise, delete them to go silent.
     #current_time = time.strftime("%H:%M:%S")
-    #send_telegram_msg(f"🤖 Bot Status: Active and checking Tønder at {current_time}. (No slots found yet)")
+    send_telegram_msg(f"🤖 Bot Status: Active and checking Tønder at {current_time}. (No slots found yet)")
     
     check_availability()

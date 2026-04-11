@@ -82,8 +82,8 @@ def check_availability():
 
 if __name__ == "__main__":
     # --- TEST LINE: This sends a message every single time the bot runs ---
-    current_time = time.strftime("%H:%M:%S")
-    send_telegram_msg(f"🤖 <b>Bot Status:</b> Active and checking Tønder at {current_time}. (No slots found yet)")
+    #current_time = time.strftime("%H:%M:%S")
+    #send_telegram_msg(f"🤖 <b>Bot Status:</b> Active and checking Tønder at {current_time}. (No slots found yet)")
     
     # Run the actual check
     check_availability()

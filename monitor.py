@@ -75,15 +75,15 @@ def check_availability():
 
     except Exception as e:
         print(f"Check failed: {e}")
-        # Optionally notify yourself if the bot crashes
-         #send_telegram_msg(f"❌ Bot Error: {str(e)}")
+        # This line below was likely the one with the extra space
+        send_telegram_msg(f"❌ Bot Error: {str(e)}")
     finally:
         driver.quit()
 
 if __name__ == "__main__":
-    # --- TEST LINE: This sends a message every single time the bot runs ---
-    #current_time = time.strftime("%H:%M:%S")
-    #send_telegram_msg(f"🤖 <b>Bot Status:</b> Active and checking Tønder at {current_time}. (No slots found yet)")
+    # If you want to keep the "I am alive" message, keep the next 2 lines. 
+    # Otherwise, delete them to go silent.
+    current_time = time.strftime("%H:%M:%S")
+    send_telegram_msg(f"🤖 Bot Status: Active and checking Tønder at {current_time}. (No slots found yet)")
     
-    # Run the actual check
     check_availability()

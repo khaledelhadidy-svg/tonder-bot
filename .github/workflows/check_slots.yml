@@ -10,6 +10,10 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1  # Prevent concurrent runs
+      fail-fast: false  # Don't cancel other jobs if one fails
+      
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
@@ -19,22 +23,37 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install dependencies
+      - name: Install Chrome and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+          chromium-browser --version
+          chromedriver --version
+      
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install requests beautifulsoup4
+          pip install selenium==4.15.0 webdriver-manager==4.0.1 requests==2.31.0 beautifulsoup4==4.12.2
       
-      - name: Run Monitor
+      - name: Run Monitor with retry
+        id: monitor
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_on: error
+          command: python monitor.py
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python monitor.py
       
       - name: Upload debug artifacts if failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: debug-output
+          name: debug-output-${{ github.run_id }}
           path: |
+            debug_page.html
+            debug_error.png
             slot_count_state.txt
           retention-days: 3

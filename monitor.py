@@ -17,9 +17,12 @@ HOME_URL = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pag
 STATE_FILE = "slot_count_state.txt"
 
 def send_telegram_msg(text):
+    """Send notification via Telegram"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("⚠️ Telegram credentials missing")
-        return
+        print("   Please set TELEGRAM_TOKEN and CHAT_ID environment variables")
+        return False
+    
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         response = requests.post(msg_url, json={
@@ -27,10 +30,16 @@ def send_telegram_msg(text):
             "text": text, 
             "parse_mode": "HTML"
         }, timeout=10)
+        
         if response.status_code == 200:
             print("✅ Telegram notification sent")
+            return True
+        else:
+            print(f"❌ Telegram error: {response.status_code} - {response.text}")
+            return False
     except Exception as e:
         print(f"❌ Telegram send failed: {e}")
+        return False
 
 def setup_driver():
     """Setup Chrome driver with stealth for GitHub Actions"""
@@ -162,6 +171,7 @@ def count_slots_from_page(driver):
     return fully_booked, available_dates
 
 def load_previous_count():
+    """Load the previously stored slot count"""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             try:
@@ -171,10 +181,12 @@ def load_previous_count():
     return None
 
 def save_current_count(count):
+    """Save the current slot count"""
     with open(STATE_FILE, 'w') as f:
         f.write(str(count))
 
 def check_availability():
+    """Main monitoring function"""
     print(f"\n{'='*60}")
     print(f"🔍 Wedding Slot Monitor - {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
@@ -199,6 +211,39 @@ def check_availability():
         print(f"   Fully booked: {fully_booked_count}")
         print(f"   Available: {len(available_dates)}")
         
+        # ============================================
+        # FORCED TEST - Remove or comment out after testing!
+        # This sends a test alert to verify Telegram is working
+        # ============================================
+        print("\n🧪 Running forced Telegram test...")
+        test_message = f"""<b>🧪 WEDDING SLOT MONITOR TEST</b>
+
+✅ Monitor is successfully running!
+✅ Browser automation working
+✅ Slot detection working
+
+📊 Current Status:
+• Total dates: {total_slots}
+• Fully booked: {fully_booked_count}
+• Available slots: {len(available_dates)}
+
+⏰ Time: {time.strftime('%Y-%m-%d %H:%M:%S')}
+
+The monitor will now alert you automatically when:
+• Any slot becomes available
+• The fully booked count changes
+
+🔗 <a href='https://github.com/{os.environ.get('GITHUB_REPOSITORY', 'your-repo')}/actions'>View GitHub Actions</a>"""
+        
+        test_sent = send_telegram_msg(test_message)
+        if test_sent:
+            print("   ✅ Test alert sent successfully!")
+        else:
+            print("   ⚠️ Test alert failed - check your Telegram credentials")
+        # ============================================
+        # END OF FORCED TEST
+        # ============================================
+        
         # Load previous state
         previous_count = load_previous_count()
         
@@ -214,6 +259,8 @@ def check_availability():
             msg += f"📅 Available dates:\n"
             for date in available_dates[:5]:
                 msg += f"  • {date}\n"
+            if len(available_dates) > 5:
+                msg += f"  ... and {len(available_dates) - 5} more\n"
             msg += f"\n🔗 <a href='{driver.current_url}'>Book Now</a>"
             send_telegram_msg(msg)
             save_current_count(fully_booked_count)
@@ -224,7 +271,7 @@ def check_availability():
             print(f"\n🔔 SLOT COUNT DECREASED!")
             msg = f"🔔 <b>POTENTIAL SLOT OPENING!</b>\n\n"
             msg += f"Fully booked slots decreased from {previous_count} to {fully_booked_count}\n\n"
-            msg += f"This means a slot may have become available!\n\n"
+            msg += f"This means {previous_count - fully_booked_count} slot(s) may have become available!\n\n"
             msg += f"🔗 <a href='{driver.current_url}'>Check Now</a>"
             send_telegram_msg(msg)
             save_current_count(fully_booked_count)
@@ -232,9 +279,24 @@ def check_availability():
         elif previous_count is None:
             print(f"\n💾 First run - saving baseline: {fully_booked_count}")
             save_current_count(fully_booked_count)
+            
+            # Send baseline notification
+            baseline_msg = f"""<b>📋 Wedding Slot Monitor - Baseline Set</b>
+
+Monitor has started tracking wedding slots.
+
+📊 Baseline Statistics:
+• Total dates tracked: {total_slots}
+• Currently fully booked: {fully_booked_count}
+• Available slots: {len(available_dates)}
+
+The monitor will alert you immediately when any slot becomes available.
+
+⏰ Next check: in 10 minutes"""
+            send_telegram_msg(baseline_msg)
         
         else:
-            print(f"\n✅ No changes. All {fully_booked_count} dates still fully booked.")
+            print(f"\n✅ No changes detected. All {fully_booked_count} dates still fully booked.")
         
         return True
         
@@ -242,6 +304,16 @@ def check_availability():
         print(f"❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Send error notification
+        error_msg = f"""<b>⚠️ Wedding Slot Monitor Error</b>
+
+An error occurred during monitoring:
+
+<code>{str(e)[:200]}</code>
+
+🔗 <a href='https://github.com/{os.environ.get('GITHUB_REPOSITORY', 'your-repo')}/actions'>Check GitHub Actions logs</a>"""
+        send_telegram_msg(error_msg)
         
         if driver:
             try:

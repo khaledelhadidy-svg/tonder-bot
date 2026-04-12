@@ -10,72 +10,62 @@ from webdriver_manager.chrome import ChromeDriverManager
 # --- CONFIGURATION ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
+# We start at the HOME page of the marriage (vielse) section to get a session
+HOME_URL = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en"
+# This is where we want to end up
+TARGET_URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
 
 def send_telegram_msg(text):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        return
+    if not TELEGRAM_TOKEN or not CHAT_ID: return
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-    try:
-        requests.post(msg_url, json=payload, timeout=10)
-    except:
-        pass
+    try: requests.post(msg_url, json={"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}, timeout=10)
+    except: pass
 
 def check_availability():
-    print("Starting Stealth Scan...")
-    
+    print("Starting Human-Flow Scan...")
     chrome_options = Options()
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    
-    # This is the "Human" disguise
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
-    # Hide Selenium footprints
-    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-
     try:
-        driver.get(URL)
-        # Give it a long time to breathe and bypass any "Checking your browser" screens
-        time.sleep(15)
+        # STEP 1: Get the session cookie from the homepage
+        print("Fetching session...")
+        driver.get(HOME_URL)
+        time.sleep(5) 
 
-        # Check for the dates
+        # STEP 2: Now go to the specific calendar page
+        print("Navigating to calendar...")
+        driver.get(TARGET_URL)
+        time.sleep(10) # Wait for JS to render
+
+        # STEP 3: Check for dates
+        # Based on your HTML source, we look for the date blocks
         date_blocks = driver.find_elements(By.CLASS_NAME, "date")
         
         available_dates = []
         phrase_count = 0
         no_slots_phrase = "No more available time slots"
 
-        if not date_blocks:
-            # If we find nothing, the bot might be blocked. Let's check the text.
-            page_text = driver.find_element(By.TAG_NAME, "body").text
-            if "Cloudflare" in page_text or "Access Denied" in page_text:
-                print("⛔ BLOCK DETECTED: The website is blocking the GitHub server.")
-            else:
-                print("Page loaded but no dates found. Might be a blank session.")
-        else:
-            for block in date_blocks:
-                txt = block.text
-                if no_slots_phrase in txt:
-                    phrase_count += 1
-                elif "May" in txt or "June" in txt: # Safety check for months
-                    available_dates.append(txt.split('\n')[0])
+        for block in date_blocks:
+            txt = block.text
+            if no_slots_phrase in txt:
+                phrase_count += 1
+            elif "2026" in txt: # If the year is there but the 'No slots' phrase isn't...
+                available_dates.append(txt.split('\n')[0])
 
-        print(f"Result: {len(available_dates)} slots, {phrase_count} full.")
+        print(f"Final Count: {len(available_dates)} available, {phrase_count} full.")
 
         if len(available_dates) > 0:
-            send_telegram_msg(f"🚨 <b>DATE FOUND!</b>\n{available_dates[0]}\n<a href='{URL}'>Book!</a>")
+            msg = f"🚨 <b>DATE ALERT!</b>\nAvailable: {available_dates[0]}\n\n<a href='{TARGET_URL}'>BOOK NOW</a>"
+            send_telegram_msg(msg)
 
     except Exception as e:
-        print(f"Error during scan: {e}")
+        print(f"Error: {e}")
     finally:
         driver.quit()
 

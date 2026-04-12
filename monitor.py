@@ -1,15 +1,18 @@
 import os
 import time
 import requests
-import hashlib
-from bs4 import BeautifulSoup
-from datetime import datetime
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # --- CONFIGURATION ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# The direct page URL
+# Direct URL to the TimeSelection page
 TARGET_URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
 
 # File to store the previous count
@@ -36,119 +39,150 @@ def send_telegram_msg(text):
     except Exception as e:
         print(f"❌ Telegram send failed: {e}")
 
-def count_no_slots_available(html_content):
+def count_no_slots_with_selenium(driver):
     """
-    Count occurrences of "No more available time slots" in the HTML
-    Also returns list of dates that ARE available (no warning message)
+    Count occurrences of "No more available time slots" using Selenium
     """
-    soup = BeautifulSoup(html_content, 'html.parser')
+    # Wait for the date blocks to load
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "date"))
+        )
+    except:
+        pass  # Continue anyway, we'll check manually
     
-    # Method 1: Count warning messages directly
-    warning_messages = soup.find_all('span', string='No more available time slots')
-    count_warning = len(warning_messages)
+    # Method 1: Find all warning spans by text
+    warning_spans = driver.find_elements(By.XPATH, "//span[text()='No more available time slots']")
+    count_spans = len(warning_spans)
     
-    # Method 2: Count date blocks without warning messages (these would be available)
-    date_blocks = soup.find_all('div', class_='date one-queue')
-    
-    available_dates = []
-    for block in date_blocks:
-        # Check if this block has the warning message
-        warning = block.find('span', string='No more available time slots')
-        if not warning:
-            # No warning means slots are available!
-            date_text = block.find('span', class_='header-text')
-            if date_text:
-                available_dates.append(date_text.text.strip())
-    
-    # Also try counting by text in warning-message divs
-    warning_divs = soup.find_all('div', class_='warning-message')
+    # Method 2: Find all warning divs
+    warning_divs = driver.find_elements(By.CLASS_NAME, "warning-message")
     count_divs = len(warning_divs)
     
-    print(f"  Found {count_warning} warning spans")
+    # Method 3: Count date blocks that have the warning
+    date_blocks = driver.find_elements(By.CLASS_NAME, "date.one-queue")
+    
+    # Find available dates (blocks without warning)
+    available_dates = []
+    for block in date_blocks:
+        try:
+            # Check if this block has the warning message
+            warning = block.find_elements(By.XPATH, ".//span[text()='No more available time slots']")
+            if not warning:
+                # No warning means slots are available!
+                try:
+                    date_text = block.find_element(By.CLASS_NAME, "header-text").text
+                    available_dates.append(date_text)
+                except:
+                    pass
+        except:
+            continue
+    
+    print(f"  Found {count_spans} warning spans")
     print(f"  Found {count_divs} warning divs")
     print(f"  Found {len(date_blocks)} total date blocks")
     print(f"  Available dates: {len(available_dates)}")
     
-    return max(count_warning, count_divs), available_dates
+    # Use the most reliable count (spans seem most consistent)
+    return max(count_spans, count_divs), available_dates
 
-def get_page_with_session():
-    """Fetch page with proper session handling"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-    }
+def setup_stealth_driver():
+    """Setup Chrome driver with maximum stealth"""
+    chrome_options = Options()
     
-    session = requests.Session()
+    # Essential headless options for GitHub Actions
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
     
-    # First, visit the home page to establish session
-    home_url = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en"
-    print("  Establishing session via home page...")
+    # Anti-detection measures
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    # Realistic user agent
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # Additional stealth
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--silent")
+    
+    # Try to use system Chrome first
     try:
-        home_response = session.get(home_url, headers=headers, timeout=15)
-        time.sleep(2)  # Let session cookies set
+        from selenium.webdriver.chrome.service import Service
+        service = Service(executable_path='/usr/bin/chromedriver')
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        print("✅ Using system Chrome driver")
     except Exception as e:
-        print(f"  ⚠️ Home page request failed: {e}")
+        print(f"⚠️ System Chrome failed ({e}), using webdriver-manager")
+        from webdriver_manager.chrome import ChromeDriverManager
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
-    # Now fetch the target page
-    print("  Fetching target page...")
-    response = session.get(TARGET_URL, headers=headers, timeout=15)
+    # Execute stealth JavaScript
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+        'source': '''
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            window.chrome = { runtime: {} };
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+        '''
+    })
     
-    return response
+    print("✅ Stealth mode applied")
+    return driver
 
 def load_previous_count():
     """Load the previously stored slot count"""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             try:
-                data = f.read().strip().split(',')
-                count = int(data[0])
-                hash_val = data[1] if len(data) > 1 else ""
-                return count, hash_val
+                return int(f.read().strip())
             except:
-                return None, None
-    return None, None
+                return None
+    return None
 
-def save_current_count(count, content_hash):
-    """Save the current slot count and content hash"""
+def save_current_count(count):
+    """Save the current slot count"""
     with open(STATE_FILE, 'w') as f:
-        f.write(f"{count},{content_hash}")
-
-def get_content_hash(html_content):
-    """Create a hash of relevant page content to detect changes"""
-    # Only hash the date blocks to avoid false positives from timestamps
-    soup = BeautifulSoup(html_content, 'html.parser')
-    date_blocks = soup.find_all('div', class_='date one-queue')
-    relevant_content = str(date_blocks)
-    return hashlib.md5(relevant_content.encode()).hexdigest()
+        f.write(str(count))
 
 def check_availability():
     """Main monitoring function"""
     print(f"\n{'='*60}")
-    print(f"🔍 Wedding Slot Monitor - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔍 Wedding Slot Monitor - {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
     
+    driver = None
     try:
-        # Fetch the page
-        print("📡 Fetching page...")
-        response = get_page_with_session()
+        # Setup driver
+        print("🚀 Initializing browser...")
+        driver = setup_stealth_driver()
         
-        if response.status_code != 200:
-            print(f"❌ HTTP Error: {response.status_code}")
-            return False
+        # Navigate directly to the page
+        print(f"📱 Loading page...")
+        driver.get(TARGET_URL)
         
-        # Count the "No more available time slots"
+        # Wait for page to load
+        time.sleep(5)
+        
+        # Count the warning messages
         print("📊 Analyzing page content...")
-        no_slots_count, available_dates = count_no_slots_available(response.text)
-        
-        # Get content hash for change detection
-        content_hash = get_content_hash(response.text)
+        no_slots_count, available_dates = count_no_slots_with_selenium(driver)
         
         # Load previous state
-        previous_count, previous_hash = load_previous_count()
+        previous_count = load_previous_count()
         
         print(f"\n📈 Current 'No slots' count: {no_slots_count}")
         if previous_count is not None:
@@ -171,49 +205,57 @@ def check_availability():
             send_telegram_msg(msg)
             
             # Save current state
-            save_current_count(no_slots_count, content_hash)
+            save_current_count(no_slots_count)
             return True
         
-        # Check if count has changed (someone booked a slot)
+        # Check if count has changed
         elif previous_count is not None and no_slots_count != previous_count:
             print(f"\n⚠️ SLOT COUNT CHANGED!")
             print(f"   Was: {previous_count}, Now: {no_slots_count}")
             
-            # If count decreased, a slot was booked (bad for us)
-            # If count increased, more slots became unavailable
+            # If count decreased, a slot might have opened
             if no_slots_count < previous_count:
-                # This could mean someone cancelled, making a slot available!
                 msg = f"🔔 <b>POTENTIAL SLOT OPENING!</b>\n\n"
                 msg += f"Available slot count changed from {previous_count} to {no_slots_count}\n\n"
                 msg += f"This might mean a slot has become available!\n\n"
                 msg += f"🔗 <a href='{TARGET_URL}'>Check Now</a>"
                 send_telegram_msg(msg)
             
-            save_current_count(no_slots_count, content_hash)
+            save_current_count(no_slots_count)
         
-        elif previous_hash is not None and content_hash != previous_hash:
-            print(f"\n⚠️ Page content changed (structure may have updated)")
-            # Send notification about structural change
-            msg = f"ℹ️ <b>Page Structure Changed</b>\n\n"
-            msg += f"The wedding booking page has been updated.\n"
-            msg += f"Current 'No slots' count: {no_slots_count}\n\n"
-            msg += f"🔗 <a href='{TARGET_URL}'>Review Changes</a>"
-            send_telegram_msg(msg)
-            save_current_count(no_slots_count, content_hash)
+        elif no_slots_count == 0 and previous_count is None:
+            # First run - save the count
+            print(f"\n💾 First run - saving baseline count: {no_slots_count}")
+            save_current_count(no_slots_count)
         
         else:
             print(f"\n✅ No changes detected. All {no_slots_count} dates still fully booked.")
         
         return True
         
-    except requests.RequestException as e:
-        print(f"❌ Network error: {e}")
-        return False
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(f"❌ ERROR: {e}")
         import traceback
         traceback.print_exc()
+        
+        # Save screenshot for debugging
+        if driver:
+            try:
+                driver.save_screenshot("debug_error.png")
+                print("📸 Error screenshot saved to debug_error.png")
+                
+                # Save page source
+                with open("debug_page.html", "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                print("📄 Debug HTML saved to debug_page.html")
+            except:
+                pass
+        
         return False
+    finally:
+        if driver:
+            driver.quit()
+            print("🔚 Browser closed")
 
 if __name__ == "__main__":
     check_availability()

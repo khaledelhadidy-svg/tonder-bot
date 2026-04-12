@@ -26,7 +26,7 @@ def send_telegram_msg(text):
         print(f"Telegram error: {e}")
 
 def check_availability():
-    print("Starting targeted Tønder scan...")
+    print("Starting targeted Tønder scan (No-Iframe Version)...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless=new") 
@@ -40,45 +40,48 @@ def check_availability():
     try:
         driver.get(URL)
         
-        # 1. Wait for the main form to load (based on your source code)
+        # 1. WAIT FOR THE MAIN FORM (Based on your source code id="mainForm")
         wait = WebDriverWait(driver, 30)
         wait.until(EC.presence_of_element_located((By.ID, "mainForm")))
         
-        # Wait a few extra seconds for the JS to populate the date-list section
+        # Small sleep to let the JavaScript finish rendering the list
         time.sleep(5)
 
-        # 2. ANALYSIS OF TEXT (For Fully Booked Labels)
-        # We look for the "warning-message" class found in your HTML
-        full_page_text = driver.find_element(By.TAG_NAME, "body").text
-        no_slots_phrase = "No more available time slots"
-        phrase_count = full_page_text.count(no_slots_phrase)
-
-        # 3. ANALYSIS OF SLOTS (Looking for things that AREN'T "No more available")
-        # Available slots in this system usually appear as buttons or links inside the "date" divs
-        # We look for any element that might trigger the 'selectTime' function
-        elements = driver.find_elements(By.CSS_SELECTOR, ".date.one-queue")
+        # 2. ANALYSIS
+        # Get all date containers
+        date_blocks = driver.find_elements(By.CLASS_NAME, "date.one-queue")
         
         available_dates = []
-        for date_div in elements:
-            content = date_div.text
-            if no_slots_phrase not in content:
-                # If the 'No more' phrase is NOT in this date block, it might have a slot!
-                date_header = date_div.find_element(By.CLASS_NAME, "header-text").text
-                available_dates.append(date_header)
+        no_slots_phrase = "No more available time slots"
+        phrase_count = 0
+
+        for block in date_blocks:
+            block_text = block.text
+            if no_slots_phrase in block_text:
+                phrase_count += 1
+            else:
+                # If the 'Full' phrase is missing, this date has a slot!
+                # Extract the date text (e.g., "Tuesday May 5, 2026")
+                try:
+                    date_name = block.find_element(By.CLASS_NAME, "header-text").text
+                    if date_name:
+                        available_dates.append(date_name)
+                except:
+                    available_dates.append("Unknown Date Slot Found")
 
         print(f"Scan complete. Found {len(available_dates)} available dates and {phrase_count} 'Full' labels.")
 
-        # 4. LOGIC FOR ALERTING
+        # 3. LOGIC FOR ALERTING
         if len(available_dates) > 0:
-            msg = f"🚨 <b>WEDDING SLOT FOUND!</b>\nDates with availability:\n" + "\n".join(available_dates) + f"\n\n🔗 <a href='{URL}'>Book Now</a>"
+            msg = f"🚨 <b>WEDDING SLOT FOUND!</b>\n\nAvailable:\n" + "\n".join(available_dates) + f"\n\n🔗 <a href='{URL}'>Book Now</a>"
             send_telegram_msg(msg)
-            print("Alert sent: Available dates found!")
+            print("Alert sent: Clickable slots found.")
 
         elif phrase_count > 0:
-            print(f"System Check: I can see {phrase_count} fully booked dates. Script is working, but no dates are open.")
+            print(f"Confirmed: Site is visible. {phrase_count} dates are fully booked. Keep waiting!")
 
         else:
-            print("Warning: The page loaded but no dates or labels were found. Check the URL/Session.")
+            print("Warning: No date blocks or 'Full' labels found. The site might have blocked the bot.")
 
     except Exception as e:
         print(f"Check failed: {e}")

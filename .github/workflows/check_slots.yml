@@ -15,14 +15,41 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
+      
       - name: Set up Python
         uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
+      
+      - name: Install Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+          echo "CHROME_PATH=$(which chromium-browser)" >> $GITHUB_ENV
+      
       - name: Install dependencies
-        run: pip install selenium webdriver-manager requests
+        run: |
+          pip install --upgrade pip
+          pip install selenium==4.15.0 webdriver-manager==4.0.1 requests==2.31.0 selenium-stealth==1.0.6
+      
+      - name: Verify Chrome installation
+        run: |
+          chromium-browser --version
+          chromedriver --version
+      
       - name: Run Monitor
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
+          DISPLAY: ':99'  # Helps with headless mode stability
         run: python monitor.py
+      
+      - name: Upload debug artifacts if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-output
+          path: |
+            debug_page.html
+            available_slots_*.png
+          retention-days: 3

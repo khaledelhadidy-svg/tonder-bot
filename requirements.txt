@@ -2,3 +2,5 @@ selenium==4.15.0
 selenium-stealth==1.0.6
 webdriver-manager==4.0.1
 requests==2.31.0
+
+beautifulsoup4==4.12.2

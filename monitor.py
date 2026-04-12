@@ -216,40 +216,7 @@ def check_availability():
         print(f"   Available: {len(available_dates)}")
         print(f"   Booking link: {BOOKING_LINK}")
         
-        # ============================================
-        # FORCED TEST - Remove or comment out after testing!
-        # This sends a test alert to verify Telegram is working
-        # ============================================
-        print("\n🧪 Running forced Telegram test...")
-        test_message = f"""<b>🧪 WEDDING SLOT MONITOR TEST</b>
 
-✅ Monitor is successfully running!
-✅ Browser automation working
-✅ Slot detection working
-
-📊 Current Status:
-• Total dates: {total_slots}
-• Fully booked: {fully_booked_count}
-• Available slots: {len(available_dates)}
-
-⏰ Time: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-The monitor will now alert you automatically when:
-• Any slot becomes available
-• The fully booked count changes
-
-🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK YOUR WEDDING SLOT</a>
-
-⚠️ Keep this link - it's your permanent booking page!"""
-        
-        test_sent = send_telegram_msg(test_message)
-        if test_sent:
-            print("   ✅ Test alert sent successfully with booking link!")
-        else:
-            print("   ⚠️ Test alert failed - check your Telegram credentials")
-        # ============================================
-        # END OF FORCED TEST
-        # ============================================
         
         # Load previous state
         previous_count = load_previous_count()

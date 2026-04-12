@@ -2,7 +2,7 @@ name: Tonder Slot Checker
 
 on:
   schedule:
-    - cron: '4,19,34,49 * * * *'
+    - cron: '*/5 * * * *'  # Check every 5 minutes
   repository_dispatch:
     types: [ping_from_cronjob]
   workflow_dispatch:
@@ -10,35 +10,31 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.2.2
+      
       - name: Set up Python
         uses: actions/setup-python@v5.4.0
         with:
           python-version: '3.11'
-      - name: Install Chrome
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
+      
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install selenium webdriver-manager requests selenium-stealth
+          pip install requests beautifulsoup4
+      
       - name: Run Monitor
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python monitor.py
+      
       - name: Upload debug artifacts if failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: debug-output
           path: |
-            debug_page.html
-            debug_error.png
-            available_slots_*.png
+            slot_count_state.txt
           retention-days: 3

@@ -26,15 +26,13 @@ def send_telegram_msg(text):
         print(f"Telegram error: {e}")
 
 def check_availability():
-    print("Starting safety-first scan...")
+    print("Starting targeted Tønder scan...")
     
     chrome_options = Options()
-    # "headless=new" is the modern standard for Selenium 4+
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    # Adding a User-Agent helps avoid being blocked as a bot
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
@@ -42,60 +40,48 @@ def check_availability():
     try:
         driver.get(URL)
         
-        # 1. WAIT FOR IFRAME AND SWITCH
-        # FrontDesk Suite loads the calendar inside an iframe.
+        # 1. Wait for the main form to load (based on your source code)
         wait = WebDriverWait(driver, 30)
-        try:
-            # Wait for any iframe to appear and switch to it
-            wait.until(EC.frame_to_be_available_and_switch_to_it((By.TAG_NAME, "iframe")))
-            print("Successfully switched to the reservation iframe.")
-        except Exception as e:
-            print("No iframe found or timeout. Continuing on main page...")
-
-        # 2. WAIT FOR CONTENT TO LOAD INSIDE THE FRAME
-        # We look for the phrase you provided in the page content
-        wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        wait.until(EC.presence_of_element_located((By.ID, "mainForm")))
         
-        # Additional buffer for JS to finish rendering dates
-        time.sleep(5) 
+        # Wait a few extra seconds for the JS to populate the date-list section
+        time.sleep(5)
 
-        # 3. ANALYSIS
+        # 2. ANALYSIS OF TEXT (For Fully Booked Labels)
+        # We look for the "warning-message" class found in your HTML
         full_page_text = driver.find_element(By.TAG_NAME, "body").text
         no_slots_phrase = "No more available time slots"
         phrase_count = full_page_text.count(no_slots_phrase)
 
-        # Look for the 'Select' buttons which only appear when a slot is open
-        # We search for text specifically to catch slots
-        clickable_elements = []
-        # Finding elements that contain "Select" (common in FrontDesk Suite)
-        potential_slots = driver.find_elements(By.XPATH, "//*[contains(text(), 'Select') or contains(text(), '10:') or contains(text(), '11:')]")
+        # 3. ANALYSIS OF SLOTS (Looking for things that AREN'T "No more available")
+        # Available slots in this system usually appear as buttons or links inside the "date" divs
+        # We look for any element that might trigger the 'selectTime' function
+        elements = driver.find_elements(By.CSS_SELECTOR, ".date.one-queue")
         
-        for item in potential_slots:
-            if item.is_displayed() and item.text.strip():
-                clickable_elements.append(item.text.strip())
+        available_dates = []
+        for date_div in elements:
+            content = date_div.text
+            if no_slots_phrase not in content:
+                # If the 'No more' phrase is NOT in this date block, it might have a slot!
+                date_header = date_div.find_element(By.CLASS_NAME, "header-text").text
+                available_dates.append(date_header)
 
-        print(f"Scan complete. Found {len(clickable_elements)} booking elements and {phrase_count} 'Full' labels.")
+        print(f"Scan complete. Found {len(available_dates)} available dates and {phrase_count} 'Full' labels.")
 
         # 4. LOGIC FOR ALERTING
-        if len(clickable_elements) > 0:
-            msg = f"🚨 <b>SLOT ALERT!</b> Found {len(clickable_elements)} potential slots!\n<b>Details:</b> {', '.join(clickable_elements[:5])}\n\n🔗 <a href='{URL}'>Book Now</a>"
+        if len(available_dates) > 0:
+            msg = f"🚨 <b>WEDDING SLOT FOUND!</b>\nDates with availability:\n" + "\n".join(available_dates) + f"\n\n🔗 <a href='{URL}'>Book Now</a>"
             send_telegram_msg(msg)
-            print("Alert sent: Clickable slots found.")
+            print("Alert sent: Available dates found!")
 
         elif phrase_count > 0:
-            print(f"Confirmed: Site is visible. {phrase_count} dates are fully booked.")
+            print(f"System Check: I can see {phrase_count} fully booked dates. Script is working, but no dates are open.")
 
-        elif "Tuesday" not in full_page_text and "Thursday" not in full_page_text:
-            # This triggers if we switched frames but the page is still blank
-            print("Warning: Calendar days not found. Scraper might be blocked or page layout changed.")
-        
         else:
-            print("No slots found, but the page loaded correctly.")
+            print("Warning: The page loaded but no dates or labels were found. Check the URL/Session.")
 
     except Exception as e:
         print(f"Check failed: {e}")
-        # Only send error to Telegram if it's a critical failure
-        # send_telegram_msg(f"❌ Bot Error: {str(e)}")
     finally:
         driver.quit()
 

@@ -5,8 +5,6 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- CONFIGURATION ---
@@ -16,75 +14,68 @@ URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSel
 
 def send_telegram_msg(text):
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Telegram credentials missing.")
         return
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         requests.post(msg_url, json=payload, timeout=10)
-    except Exception as e:
-        print(f"Telegram error: {e}")
+    except:
+        pass
 
 def check_availability():
-    print("Starting targeted Tønder scan (No-Iframe Version)...")
+    print("Starting Stealth Scan...")
     
     chrome_options = Options()
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # This is the "Human" disguise
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     
+    # Hide Selenium footprints
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
     try:
         driver.get(URL)
-        
-        # 1. WAIT FOR THE MAIN FORM (Based on your source code id="mainForm")
-        wait = WebDriverWait(driver, 30)
-        wait.until(EC.presence_of_element_located((By.ID, "mainForm")))
-        
-        # Small sleep to let the JavaScript finish rendering the list
-        time.sleep(5)
+        # Give it a long time to breathe and bypass any "Checking your browser" screens
+        time.sleep(15)
 
-        # 2. ANALYSIS
-        # Get all date containers
-        date_blocks = driver.find_elements(By.CLASS_NAME, "date.one-queue")
+        # Check for the dates
+        date_blocks = driver.find_elements(By.CLASS_NAME, "date")
         
         available_dates = []
-        no_slots_phrase = "No more available time slots"
         phrase_count = 0
+        no_slots_phrase = "No more available time slots"
 
-        for block in date_blocks:
-            block_text = block.text
-            if no_slots_phrase in block_text:
-                phrase_count += 1
+        if not date_blocks:
+            # If we find nothing, the bot might be blocked. Let's check the text.
+            page_text = driver.find_element(By.TAG_NAME, "body").text
+            if "Cloudflare" in page_text or "Access Denied" in page_text:
+                print("⛔ BLOCK DETECTED: The website is blocking the GitHub server.")
             else:
-                # If the 'Full' phrase is missing, this date has a slot!
-                # Extract the date text (e.g., "Tuesday May 5, 2026")
-                try:
-                    date_name = block.find_element(By.CLASS_NAME, "header-text").text
-                    if date_name:
-                        available_dates.append(date_name)
-                except:
-                    available_dates.append("Unknown Date Slot Found")
-
-        print(f"Scan complete. Found {len(available_dates)} available dates and {phrase_count} 'Full' labels.")
-
-        # 3. LOGIC FOR ALERTING
-        if len(available_dates) > 0:
-            msg = f"🚨 <b>WEDDING SLOT FOUND!</b>\n\nAvailable:\n" + "\n".join(available_dates) + f"\n\n🔗 <a href='{URL}'>Book Now</a>"
-            send_telegram_msg(msg)
-            print("Alert sent: Clickable slots found.")
-
-        elif phrase_count > 0:
-            print(f"Confirmed: Site is visible. {phrase_count} dates are fully booked. Keep waiting!")
-
+                print("Page loaded but no dates found. Might be a blank session.")
         else:
-            print("Warning: No date blocks or 'Full' labels found. The site might have blocked the bot.")
+            for block in date_blocks:
+                txt = block.text
+                if no_slots_phrase in txt:
+                    phrase_count += 1
+                elif "May" in txt or "June" in txt: # Safety check for months
+                    available_dates.append(txt.split('\n')[0])
+
+        print(f"Result: {len(available_dates)} slots, {phrase_count} full.")
+
+        if len(available_dates) > 0:
+            send_telegram_msg(f"🚨 <b>DATE FOUND!</b>\n{available_dates[0]}\n<a href='{URL}'>Book!</a>")
 
     except Exception as e:
-        print(f"Check failed: {e}")
+        print(f"Error during scan: {e}")
     finally:
         driver.quit()
 

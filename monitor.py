@@ -11,11 +11,11 @@ from selenium.webdriver.support import expected_conditions as EC
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# The home page from your letter
+# The home page from your letter - THIS IS THE STABLE LINK
 HOME_URL = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en&uiculture=en"
 
-# The reservation page URL (will be updated dynamically, but keep as fallback)
-RESERVATION_URL = "https://reservation.frontdesksuite.com/toender/vielse/ReserveTime/TimeSelection?pageId=8d47364a-5e21-4e40-892d-e9f46878e18b&buttonId=073d59ae-ab0d-484a-90b1-e1f9b68a8843&culture=en"
+# This is the stable link that will always work for booking
+BOOKING_LINK = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en&uiculture=en"
 
 STATE_FILE = "slot_count_state.txt"
 
@@ -120,7 +120,7 @@ def click_button_and_get_calendar(driver):
     if "TimeSelection" not in current_url:
         raise Exception(f"Failed to reach calendar page. Current URL: {current_url}")
     
-    return driver, current_url
+    return driver
 
 def count_slots_from_page(driver):
     """Count fully booked slots and find available ones"""
@@ -195,14 +195,13 @@ def check_availability():
     print(f"{'='*60}")
     
     driver = None
-    current_url = RESERVATION_URL  # Default fallback
     
     try:
         driver = setup_driver()
         
         # Navigate and click button to reach calendar
         print("📱 Step 1: Navigating to calendar...")
-        driver, current_url = click_button_and_get_calendar(driver)
+        driver = click_button_and_get_calendar(driver)
         
         # Count slots
         print("📊 Step 2: Analyzing available slots...")
@@ -215,7 +214,7 @@ def check_availability():
         print(f"   Total dates: {total_slots}")
         print(f"   Fully booked: {fully_booked_count}")
         print(f"   Available: {len(available_dates)}")
-        print(f"   Booking URL: {current_url}")
+        print(f"   Booking link: {BOOKING_LINK}")
         
         # ============================================
         # FORCED TEST - Remove or comment out after testing!
@@ -239,7 +238,9 @@ The monitor will now alert you automatically when:
 • Any slot becomes available
 • The fully booked count changes
 
-🔗 <a href='{current_url}'>Click here to BOOK YOUR SLOT</a>"""
+🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK YOUR WEDDING SLOT</a>
+
+⚠️ Keep this link - it's your permanent booking page!"""
         
         test_sent = send_telegram_msg(test_message)
         if test_sent:
@@ -267,8 +268,9 @@ The monitor will now alert you automatically when:
                 msg += f"  • {date}\n"
             if len(available_dates) > 5:
                 msg += f"  ... and {len(available_dates) - 5} more\n"
-            msg += f"\n🔗 <a href='{current_url}'>CLICK HERE TO BOOK NOW</a>\n\n"
-            msg += f"⚠️ Act fast - slots get booked quickly!"
+            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK NOW</a>\n\n"
+            msg += f"⚠️ Act fast - slots get booked quickly!\n"
+            msg += f"📌 This link always works - bookmark it!"
             send_telegram_msg(msg)
             save_current_count(fully_booked_count)
             return True
@@ -279,7 +281,7 @@ The monitor will now alert you automatically when:
             msg = f"🔔 <b>POTENTIAL SLOT OPENING!</b>\n\n"
             msg += f"Fully booked slots decreased from {previous_count} to {fully_booked_count}\n\n"
             msg += f"This means {previous_count - fully_booked_count} slot(s) may have become available!\n\n"
-            msg += f"🔗 <a href='{current_url}'>CLICK HERE TO CHECK AND BOOK</a>\n\n"
+            msg += f"🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO CHECK AND BOOK</a>\n\n"
             msg += f"⚠️ Act fast - slots get booked quickly!"
             send_telegram_msg(msg)
             save_current_count(fully_booked_count)
@@ -300,7 +302,9 @@ Monitor has started tracking wedding slots.
 
 The monitor will alert you immediately when any slot becomes available.
 
-🔗 <a href='{current_url}'>Click here to BOOK YOUR SLOT</a>
+🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK YOUR SLOT</a>
+
+⚠️ Bookmark this link - it's your permanent booking page!
 
 ⏰ Next check: in 10 minutes"""
             send_telegram_msg(baseline_msg)
@@ -322,7 +326,7 @@ An error occurred during monitoring:
 
 <code>{str(e)[:200]}</code>
 
-🔗 <a href='{RESERVATION_URL}'>Try booking manually here</a>"""
+🔗 <a href='{BOOKING_LINK}'>Click here to book manually</a>"""
         send_telegram_msg(error_msg)
         
         if driver:

@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import json
+import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -125,7 +126,7 @@ def save_current_state(slots):
 
 def check_availability():
     print(f"\n{'='*60}")
-    print(f"🔍 Wedding Slot Monitor TEST - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔍 Wedding Slot Monitor - {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'='*60}")
     
     driver = None
@@ -152,55 +153,19 @@ def check_availability():
         
         previous_state = load_previous_state()
         
-        # ============================================
-        # FORCED TEST SECTION - Remove after verifying
-        # ============================================
-        print(f"\n🧪 FORCED TEST MODE ACTIVE 🧪")
-        print(f"   State file exists: {os.path.exists(STATE_FILE)}")
-        
-        if previous_state:
-            print(f"   Previous state has {len(previous_state)} dates")
-            print(f"   First 3 dates from previous state:")
-            for i, date in enumerate(list(previous_state.keys())[:3]):
-                print(f"      {i+1}. {date}: {'Available' if previous_state[date] else 'Booked'}")
-        else:
-            print(f"   No previous state found - this is FIRST RUN")
-        
-        print(f"\n   Current state has {len(current_slots)} dates")
-        print(f"   First 3 dates from current state:")
-        for i, date in enumerate(list(current_slots.keys())[:3]):
-            print(f"      {i+1}. {date}: {'Available' if current_slots[date] else 'Booked'}")
-        # ============================================
-        # END FORCED TEST SECTION
-        # ============================================
-        
-        # First run - save state and send notification
+        # First run - just save state, no alert
         if previous_state is None:
-            print(f"\n💾 FIRST RUN - saving baseline")
+            print(f"\n💾 First run - saving baseline")
             save_current_state(current_slots)
             
             # Send startup notification
-            test_msg = f"""<b>🧪 TEST: First Run - Baseline Saved</b>
-
-✅ Monitor started successfully
-✅ State file created with {total_dates} dates
-
-📊 Current Status:
-• Total dates: {total_dates}
-• Fully booked: {fully_booked_count}
-• Available slots: {len(available_dates)}
-
-🔗 <a href='{BOOKING_LINK}'>Booking Link</a>
-
-⚠️ THIS IS A TEST - Next run should NOT send this message"""
-            
-            send_telegram_msg(test_msg)
+            send_telegram_msg(f"🤖 Wedding Slot Monitor started\n\nTracking {total_dates} dates\nAll fully booked\n\nWill alert when slots open")
             return True
         
         # Compare with previous state
         previous_available = [date for date, available in previous_state.items() if available]
         
-        # Find NEWLY available slots (WERE booked, NOW available)
+        # Find NEWLY available slots (WERE booked, NOW available) - THIS IS WHAT YOU CARE ABOUT MOST!
         newly_available = []
         for date in current_slots:
             if current_slots[date]:  # Currently available
@@ -218,89 +183,46 @@ def check_availability():
         # Find REMOVED dates (in previous but not current)
         removed_dates = [date for date in previous_state if date not in current_slots]
         
-        # ============================================
-        # TEST VERIFICATION - Check if state persisted
-        # ============================================
-        print(f"\n🧪 STATE PERSISTENCE CHECK:")
-        print(f"   Previous run had {len(previous_state)} dates")
-        print(f"   Current run has {len(current_slots)} dates")
-        
-        if len(previous_state) > 0 and len(current_slots) > 0:
-            # Check if any dates match between runs
-            common_dates = set(previous_state.keys()) & set(current_slots.keys())
-            if common_dates:
-                print(f"   ✅ State persisted! Found {len(common_dates)} common dates")
-            else:
-                print(f"   ❌ WARNING: No common dates found - state may not be persisting!")
-        
-        # Send test notification if state persisted correctly (ONCE)
-        if not newly_available and not newly_booked and not new_dates and not removed_dates:
-            # No changes detected - send confirmation that state is working
-            print(f"\n✅ No changes detected - State persistence is WORKING!")
+        # CRITICAL: Send IMMEDIATE alert if ANY slot became available
+        if newly_available:
+            print(f"\n🚨 CRITICAL: NEWLY AVAILABLE SLOTS DETECTED!")
+            msg = f"🚨 <b>WEDDING SLOT JUST OPENED UP!</b>\n\n"
+            msg += f"🎉 <b>AVAILABLE DATE(S):</b>\n"
+            for date in newly_available:
+                msg += f"   ✅ <b>{date}</b>\n"
+            msg += f"\n📊 Currently {len(available_dates)} date(s) available total\n"
+            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK IMMEDIATELY</a>\n"
+            msg += f"\n⚠️ Act FAST - slots get booked within minutes!"
             
-            test_msg = f"""<b>🧪 TEST: State Persistence Working!</b>
-
-✅ Monitor ran again and found NO changes
-✅ Previous state was loaded successfully
-✅ You will ONLY receive alerts when slots change
-
-📊 Current Status:
-• Total dates: {total_dates}
-• Fully booked: {fully_booked_count}
-• Available slots: {len(available_dates)}
-
-🔗 <a href='{BOOKING_LINK}'>Booking Link</a>
-
-⚠️ THIS IS THE LAST TEST MESSAGE
-Next run will be SILENT unless slots change"""
-            
-            send_telegram_msg(test_msg)
+            send_telegram_msg(msg)
             save_current_state(current_slots)
             return True
         
-        # If changes detected, send alert
-        elif newly_available or newly_booked or new_dates or removed_dates:
-            print(f"\n🔔 CHANGES DETECTED!")
+        # Also alert if other changes (for awareness)
+        elif newly_booked or new_dates or removed_dates:
+            print(f"\n📢 CHANGES DETECTED (but no new available slots)")
             
-            msg = f"<b>📅 WEDDING SLOT UPDATE</b>\n\n"
-            
-            if newly_available:
-                msg += f"🎉 <b>SLOT(S) JUST OPENED UP!</b>\n"
-                for date in newly_available:
-                    msg += f"   ✅ {date}\n"
-                msg += f"\n"
+            msg = f"<b>📅 Calendar Update - No Available Slots</b>\n\n"
             
             if newly_booked:
-                msg += f"❌ <b>Slot(s) just got booked:</b>\n"
+                msg += f"❌ Just booked:\n"
                 for date in newly_booked[:3]:
                     msg += f"   • {date}\n"
                 msg += f"\n"
             
             if new_dates:
-                msg += f"➕ <b>New date(s) added:</b>\n"
+                msg += f"➕ New dates added (already booked):\n"
                 for date in new_dates[:3]:
                     msg += f"   • {date}\n"
                 msg += f"\n"
             
-            if removed_dates:
-                msg += f"➖ <b>Date(s) removed:</b>\n"
-                for date in removed_dates[:3]:
-                    msg += f"   • {date}\n"
-                msg += f"\n"
-            
-            msg += f"📊 <b>Current status:</b>\n"
-            msg += f"   Fully booked: {fully_booked_count}\n"
-            msg += f"   Available: {len(available_dates)}\n"
-            
-            if available_dates:
-                msg += f"\n📅 <b>All available dates:</b>\n"
-                for date in available_dates[:5]:
-                    msg += f"   • {date}\n"
-            
-            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK</a>"
+            msg += f"📊 Total: {fully_booked_count} fully booked, {len(available_dates)} available\n"
+            msg += f"\n🔗 <a href='{BOOKING_LINK}'>View Calendar</a>"
             
             send_telegram_msg(msg)
             save_current_state(current_slots)
+        else:
+            print(f"\n✅ No changes detected")
         
         return True
         

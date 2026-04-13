@@ -2,7 +2,6 @@ import os
 import time
 import requests
 import json
-import subprocess
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -80,7 +79,6 @@ def click_button_and_get_calendar(driver):
     return driver
 
 def get_slots_from_page(driver):
-    """Get all dates and their availability status"""
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CLASS_NAME, "date"))
@@ -110,7 +108,6 @@ def get_slots_from_page(driver):
     return slots
 
 def load_previous_state():
-    """Load previously stored slots data from file"""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             try:
@@ -120,7 +117,6 @@ def load_previous_state():
     return None
 
 def save_current_state(slots):
-    """Save current slots data to file"""
     with open(STATE_FILE, 'w') as f:
         json.dump(slots, f, indent=2)
 
@@ -153,19 +149,43 @@ def check_availability():
         
         previous_state = load_previous_state()
         
-        # First run - just save state, no alert
+        # ============================================
+        # TEST MODE - Remove these 4 lines for production!
+        # ============================================
+        print(f"\n🧪 [TEST MODE] State file exists: {os.path.exists(STATE_FILE)}")
+        if previous_state:
+            print(f"🧪 [TEST MODE] Previous state has {len(previous_state)} dates")
+        else:
+            print(f"🧪 [TEST MODE] No previous state - THIS IS FIRST RUN")
+        # ============================================
+        
+        # First run - save state and send startup notification (ONCE)
         if previous_state is None:
-            print(f"\n💾 First run - saving baseline")
+            print(f"\n💾 FIRST RUN - saving baseline")
             save_current_state(current_slots)
             
-            # Send startup notification
-            send_telegram_msg(f"🤖 Wedding Slot Monitor started\n\nTracking {total_dates} dates\nAll fully booked\n\nWill alert when slots open")
+            # Send ONE startup notification
+            send_telegram_msg(f"🤖 Wedding Slot Monitor STARTED\n\n✅ First run complete\n📊 Tracking {total_dates} dates\n💾 Baseline saved\n\n⚠️ You will ONLY receive alerts when slots change\n🔗 {BOOKING_LINK}")
+            
+            print(f"\n🧪 [TEST MODE] First run complete. Next run should NOT send this message.")
             return True
         
-        # Compare with previous state
-        previous_available = [date for date, available in previous_state.items() if available]
+        # ============================================
+        # TEST MODE - Verify state persistence
+        # ============================================
+        print(f"\n🧪 [TEST MODE] VERIFYING STATE PERSISTENCE:")
+        print(f"   Previous run had {len(previous_state)} dates")
+        print(f"   Current run has {len(current_slots)} dates")
         
-        # Find NEWLY available slots (WERE booked, NOW available) - THIS IS WHAT YOU CARE ABOUT MOST!
+        common_dates = set(previous_state.keys()) & set(current_slots.keys())
+        if common_dates:
+            print(f"   ✅ SUCCESS! State persisted. Found {len(common_dates)} common dates")
+            print(f"   🧪 You will NOT receive a Telegram message for this run (no changes)")
+        else:
+            print(f"   ❌ WARNING: No common dates found - state may not be persisting!")
+        # ============================================
+        
+        # Find NEWLY available slots (including brand new dates!)
         newly_available = []
         for date in current_slots:
             if current_slots[date]:  # Currently available
@@ -174,55 +194,62 @@ def check_availability():
                 elif date not in previous_state:  # Brand new date that is available
                     newly_available.append(date)
         
-        # Find NEWLY booked slots (were available, now booked)
+        # Find NEWLY booked slots
         newly_booked = [date for date in current_slots if not current_slots[date] and date in previous_state and previous_state[date]]
         
-        # Find BRAND NEW dates (not in previous state) - even if booked
+        # Find BRAND NEW dates (even if booked)
         new_dates = [date for date in current_slots if date not in previous_state]
         
-        # Find REMOVED dates (in previous but not current)
+        # Find REMOVED dates
         removed_dates = [date for date in previous_state if date not in current_slots]
         
-        # CRITICAL: Send IMMEDIATE alert if ANY slot became available
-        if newly_available:
-            print(f"\n🚨 CRITICAL: NEWLY AVAILABLE SLOTS DETECTED!")
-            msg = f"🚨 <b>WEDDING SLOT JUST OPENED UP!</b>\n\n"
-            msg += f"🎉 <b>AVAILABLE DATE(S):</b>\n"
-            for date in newly_available:
-                msg += f"   ✅ <b>{date}</b>\n"
-            msg += f"\n📊 Currently {len(available_dates)} date(s) available total\n"
-            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK IMMEDIATELY</a>\n"
-            msg += f"\n⚠️ Act FAST - slots get booked within minutes!"
+        # Send alert if ANY change occurred
+        if newly_available or newly_booked or new_dates or removed_dates:
+            print(f"\n🔔 CHANGES DETECTED!")
             
-            send_telegram_msg(msg)
-            save_current_state(current_slots)
-            return True
-        
-        # Also alert if other changes (for awareness)
-        elif newly_booked or new_dates or removed_dates:
-            print(f"\n📢 CHANGES DETECTED (but no new available slots)")
+            msg = f"<b>📅 WEDDING SLOT UPDATE</b>\n\n"
             
-            msg = f"<b>📅 Calendar Update - No Available Slots</b>\n\n"
+            if newly_available:
+                msg += f"🎉 <b>SLOT(S) JUST OPENED UP!</b>\n"
+                for date in newly_available:
+                    msg += f"   ✅ {date}\n"
+                msg += f"\n"
             
             if newly_booked:
-                msg += f"❌ Just booked:\n"
+                msg += f"❌ <b>Slot(s) just got booked:</b>\n"
                 for date in newly_booked[:3]:
                     msg += f"   • {date}\n"
+                if len(newly_booked) > 3:
+                    msg += f"   ... and {len(newly_booked) - 3} more\n"
                 msg += f"\n"
             
             if new_dates:
-                msg += f"➕ New dates added (already booked):\n"
+                msg += f"➕ <b>New date(s) added:</b>\n"
                 for date in new_dates[:3]:
                     msg += f"   • {date}\n"
                 msg += f"\n"
             
-            msg += f"📊 Total: {fully_booked_count} fully booked, {len(available_dates)} available\n"
-            msg += f"\n🔗 <a href='{BOOKING_LINK}'>View Calendar</a>"
+            if removed_dates:
+                msg += f"➖ <b>Date(s) removed:</b>\n"
+                for date in removed_dates[:3]:
+                    msg += f"   • {date}\n"
+                msg += f"\n"
+            
+            msg += f"📊 <b>Current status:</b>\n"
+            msg += f"   Fully booked: {fully_booked_count}\n"
+            msg += f"   Available: {len(available_dates)}\n"
+            
+            if available_dates:
+                msg += f"\n📅 <b>All available dates:</b>\n"
+                for date in available_dates[:5]:
+                    msg += f"   • {date}\n"
+            
+            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK</a>"
             
             send_telegram_msg(msg)
             save_current_state(current_slots)
         else:
-            print(f"\n✅ No changes detected")
+            print(f"\n✅ No changes detected - State persistence WORKING!")
         
         return True
         

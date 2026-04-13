@@ -1,6 +1,7 @@
 import os
 import time
 import requests
+import json
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -13,12 +14,10 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 HOME_URL = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en&uiculture=en"
 BOOKING_LINK = "https://reservation.frontdesksuite.com/toender/vielse/Home/Index?pageid=8d47364a-5e21-4e40-892d-e9f46878e18b&culture=en&uiculture=en"
-STATE_FILE = "slot_count_state.txt"
+STATE_FILE = "slot_state.json"  # Changed to JSON to store more data
 
 def send_telegram_msg(text):
-    """Send notification via Telegram"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("⚠️ Telegram credentials missing")
         return False
     
     msg_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -28,18 +27,12 @@ def send_telegram_msg(text):
             "text": text, 
             "parse_mode": "HTML"
         }, timeout=10)
-        
-        if response.status_code == 200:
-            print("✅ Telegram notification sent")
-            return True
-    except Exception as e:
-        print(f"❌ Telegram send failed: {e}")
-    return False
+        return response.status_code == 200
+    except:
+        return False
 
 def setup_driver():
-    """Setup Chrome driver with stealth for GitHub Actions"""
     chrome_options = Options()
-    
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -62,43 +55,31 @@ def setup_driver():
         '''
     })
     
-    print("✅ Browser ready")
     return driver
 
 def click_button_and_get_calendar(driver):
-    """Navigate from home page to calendar by clicking the button"""
-    
     print("  Loading home page...")
     driver.get(HOME_URL)
     time.sleep(3)
     
     buttons = driver.find_elements(By.CSS_SELECTOR, ".button")
-    print(f"  Found {len(buttons)} buttons")
-    
     if len(buttons) == 0:
         buttons = driver.find_elements(By.CSS_SELECTOR, "a.button")
-        print(f"  Found {len(buttons)} buttons with alternative selector")
     
     if len(buttons) == 0:
-        with open("debug_home.html", "w", encoding="utf-8") as f:
-            f.write(driver.page_source)
         raise Exception("No buttons found on home page")
     
     print(f"  Clicking button: {buttons[0].text.strip()}")
     buttons[0].click()
     time.sleep(5)
     
-    current_url = driver.current_url
-    print(f"  Navigated to: {current_url}")
-    
-    if "TimeSelection" not in current_url:
-        raise Exception(f"Failed to reach calendar page")
+    if "TimeSelection" not in driver.current_url:
+        raise Exception("Failed to reach calendar page")
     
     return driver
 
-def count_slots_from_page(driver):
-    """Count fully booked slots and find available ones"""
-    
+def get_slots_from_page(driver):
+    """Get all dates and their availability status"""
     try:
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CLASS_NAME, "date"))
@@ -107,51 +88,40 @@ def count_slots_from_page(driver):
         pass
     
     date_blocks = driver.find_elements(By.CSS_SELECTOR, ".date.one-queue")
-    
     if len(date_blocks) == 0:
         date_blocks = driver.find_elements(By.CLASS_NAME, "date")
     
-    print(f"  Found {len(date_blocks)} date blocks")
-    
-    if len(date_blocks) == 0:
-        return 0, []
-    
-    fully_booked = 0
-    available_dates = []
-    
+    slots = {}
     for block in date_blocks:
         try:
             date_elem = block.find_element(By.CLASS_NAME, "header-text")
             date_text = date_elem.text.strip()
             
             warning = block.find_elements(By.XPATH, ".//span[text()='No more available time slots']")
+            is_available = len(warning) == 0  # True if NO warning (has slots)
             
-            if warning:
-                fully_booked += 1
-                print(f"    ❌ {date_text} - Fully booked")
-            else:
-                available_dates.append(date_text)
-                print(f"    ✅ {date_text} - AVAILABLE!")
-        except Exception as e:
-            print(f"    ⚠️ Error parsing block: {e}")
+            slots[date_text] = is_available
+            status = "✅ AVAILABLE" if is_available else "❌ Fully booked"
+            print(f"    {status}: {date_text}")
+        except:
             continue
     
-    return fully_booked, available_dates
+    return slots
 
-def load_previous_count():
-    """Load the previously stored slot count"""
+def load_previous_state():
+    """Load previously stored slots data"""
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             try:
-                return int(f.read().strip())
+                return json.load(f)
             except:
                 return None
     return None
 
-def save_current_count(count):
-    """Save the current slot count"""
+def save_current_state(slots):
+    """Save current slots data"""
     with open(STATE_FILE, 'w') as f:
-        f.write(str(count))
+        json.dump(slots, f, indent=2)
 
 def check_availability():
     print(f"\n{'='*60}")
@@ -162,69 +132,103 @@ def check_availability():
     
     try:
         driver = setup_driver()
-        
-        print("📱 Step 1: Navigating to calendar...")
+        print("📱 Navigating to calendar...")
         driver = click_button_and_get_calendar(driver)
         
-        print("📊 Step 2: Analyzing available slots...")
-        fully_booked_count, available_dates = count_slots_from_page(driver)
+        print("📊 Analyzing slots...")
+        current_slots = get_slots_from_page(driver)
         
-        print(f"\n📈 Fully booked: {fully_booked_count}")
+        total_dates = len(current_slots)
+        available_dates = [date for date, available in current_slots.items() if available]
+        fully_booked_count = total_dates - len(available_dates)
+        
+        print(f"\n📈 Results:")
+        print(f"   Total dates: {total_dates}")
+        print(f"   Fully booked: {fully_booked_count}")
         print(f"   Available: {len(available_dates)}")
         
-        previous_count = load_previous_count()
-        
-        if previous_count is not None:
-            print(f"   Previous: {previous_count}")
-        
-        # Case 1: Available slots found - SEND ALERT
         if available_dates:
-            print(f"\n🎉 AVAILABLE SLOTS FOUND!")
-            msg = f"🚨 <b>WEDDING SLOT AVAILABLE!</b>\n\n"
-            msg += f"✅ <b>{len(available_dates)} date(s)</b> just opened up!\n\n"
-            msg += f"📅 Available dates:\n"
-            for date in available_dates[:5]:
-                msg += f"  • {date}\n"
-            if len(available_dates) > 5:
-                msg += f"  ... and {len(available_dates) - 5} more\n"
-            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK NOW</a>"
-            send_telegram_msg(msg)
-            save_current_count(fully_booked_count)
+            print(f"   Available dates: {', '.join(available_dates)}")
+        
+        previous_state = load_previous_state()
+        
+        # First run - just save state, no alert
+        if previous_state is None:
+            print(f"\n💾 First run - saving baseline")
+            save_current_state(current_slots)
             return True
         
-        # Case 2: Count changed (slot was booked or cancelled) - SEND ALERT
-        elif previous_count is not None and fully_booked_count != previous_count:
-            print(f"\n🔔 COUNT CHANGED: {previous_count} → {fully_booked_count}")
+        # Compare with previous state
+        previous_available = [date for date, available in previous_state.items() if available]
+        
+        # Find NEWLY available slots (were booked, now available)
+        newly_available = [date for date in current_slots if current_slots[date] and date in previous_state and not previous_state[date]]
+        
+        # Find NEWLY booked slots (were available, now booked)
+        newly_booked = [date for date in current_slots if not current_slots[date] and date in previous_state and previous_state[date]]
+        
+        # Find BRAND NEW dates (not in previous state)
+        new_dates = [date for date in current_slots if date not in previous_state]
+        
+        # Find REMOVED dates (in previous but not current)
+        removed_dates = [date for date in previous_state if date not in current_slots]
+        
+        # Send alert if ANY change occurred
+        if newly_available or newly_booked or new_dates or removed_dates:
+            print(f"\n🔔 CHANGES DETECTED!")
             
-            if fully_booked_count < previous_count:
-                msg = f"🔔 <b>SLOT OPENED UP!</b>\n\n"
-                msg += f"Available slots increased!\n"
-                msg += f"Fully booked: {previous_count} → {fully_booked_count}\n\n"
-                msg += f"🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO CHECK AND BOOK</a>"
-            else:
-                msg = f"📊 <b>SLOT COUNT UPDATED</b>\n\n"
-                msg += f"Fully booked slots: {previous_count} → {fully_booked_count}\n\n"
-                msg += f"🔗 <a href='{BOOKING_LINK}'>View Calendar</a>"
+            msg = f"<b>📅 WEDDING SLOT UPDATE</b>\n\n"
+            
+            # Most important: Newly available slots (CANCELLATIONS!)
+            if newly_available:
+                msg += f"🎉 <b>SLOT(S) JUST OPENED UP!</b>\n"
+                for date in newly_available:
+                    msg += f"   ✅ {date}\n"
+                msg += f"\n"
+            
+            # Newly booked slots
+            if newly_booked:
+                msg += f"❌ <b>Slot(s) just got booked:</b>\n"
+                for date in newly_booked[:3]:
+                    msg += f"   • {date}\n"
+                if len(newly_booked) > 3:
+                    msg += f"   ... and {len(newly_booked) - 3} more\n"
+                msg += f"\n"
+            
+            # Brand new dates added to calendar
+            if new_dates:
+                msg += f"➕ <b>New date(s) added:</b>\n"
+                for date in new_dates[:3]:
+                    msg += f"   • {date}\n"
+                msg += f"\n"
+            
+            # Dates removed from calendar
+            if removed_dates:
+                msg += f"➖ <b>Date(s) removed:</b>\n"
+                for date in removed_dates[:3]:
+                    msg += f"   • {date}\n"
+                msg += f"\n"
+            
+            msg += f"📊 <b>Current status:</b>\n"
+            msg += f"   Fully booked: {fully_booked_count}\n"
+            msg += f"   Available: {len(available_dates)}\n"
+            
+            if available_dates:
+                msg += f"\n📅 <b>All available dates:</b>\n"
+                for date in available_dates[:5]:
+                    msg += f"   • {date}\n"
+            
+            msg += f"\n🔗 <a href='{BOOKING_LINK}'>CLICK HERE TO BOOK</a>"
             
             send_telegram_msg(msg)
-            save_current_count(fully_booked_count)
-        
-        # Case 3: First run - save baseline, NO ALERT
-        elif previous_count is None:
-            print(f"\n💾 Saving baseline: {fully_booked_count}")
-            save_current_count(fully_booked_count)
-        
-        # Case 4: No changes - SILENT, NO ALERT
+            save_current_state(current_slots)
         else:
-            print(f"\n✅ No changes")
+            print(f"\n✅ No changes detected")
         
         return True
         
     except Exception as e:
         print(f"❌ ERROR: {e}")
-        # Only send error alert if it's a critical failure
-        if "No buttons found" in str(e) or "Failed to reach calendar" in str(e):
-            send_telegram_msg(f"⚠️ Monitor error: {str(e)[:100]}")
         return False
     finally:
         if driver:

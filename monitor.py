@@ -149,41 +149,14 @@ def check_availability():
         
         previous_state = load_previous_state()
         
-        # ============================================
-        # TEST MODE - Remove these 4 lines for production!
-        # ============================================
-        print(f"\n🧪 [TEST MODE] State file exists: {os.path.exists(STATE_FILE)}")
-        if previous_state:
-            print(f"🧪 [TEST MODE] Previous state has {len(previous_state)} dates")
-        else:
-            print(f"🧪 [TEST MODE] No previous state - THIS IS FIRST RUN")
-        # ============================================
-        
         # First run - save state and send startup notification (ONCE)
         if previous_state is None:
-            print(f"\n💾 FIRST RUN - saving baseline")
+            print(f"\n💾 First run - saving baseline")
             save_current_state(current_slots)
             
             # Send ONE startup notification
             send_telegram_msg(f"🤖 Wedding Slot Monitor STARTED\n\n✅ First run complete\n📊 Tracking {total_dates} dates\n💾 Baseline saved\n\n⚠️ You will ONLY receive alerts when slots change\n🔗 {BOOKING_LINK}")
-            
-            print(f"\n🧪 [TEST MODE] First run complete. Next run should NOT send this message.")
             return True
-        
-        # ============================================
-        # TEST MODE - Verify state persistence
-        # ============================================
-        print(f"\n🧪 [TEST MODE] VERIFYING STATE PERSISTENCE:")
-        print(f"   Previous run had {len(previous_state)} dates")
-        print(f"   Current run has {len(current_slots)} dates")
-        
-        common_dates = set(previous_state.keys()) & set(current_slots.keys())
-        if common_dates:
-            print(f"   ✅ SUCCESS! State persisted. Found {len(common_dates)} common dates")
-            print(f"   🧪 You will NOT receive a Telegram message for this run (no changes)")
-        else:
-            print(f"   ❌ WARNING: No common dates found - state may not be persisting!")
-        # ============================================
         
         # Find NEWLY available slots (including brand new dates!)
         newly_available = []
@@ -249,13 +222,12 @@ def check_availability():
             send_telegram_msg(msg)
             save_current_state(current_slots)
         else:
-            print(f"\n✅ No changes detected - State persistence WORKING!")
+            print(f"\n✅ No changes detected")
         
         return True
         
     except Exception as e:
         print(f"❌ ERROR: {e}")
-        send_telegram_msg(f"⚠️ Monitor error: {str(e)[:100]}")
         return False
     finally:
         if driver:

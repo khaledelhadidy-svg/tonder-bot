@@ -1,8 +1,8 @@
-name: Tonder Slot Checker
+name: Tonder Slot Checker TEST
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Every 10 minutes
+    - cron: '*/5 * * * *'
   repository_dispatch:
     types: [ping_from_cronjob]
   workflow_dispatch:
@@ -10,6 +10,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write  # REQUIRED for saving state!
     
     steps:
       - name: Checkout code
@@ -24,32 +27,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
-          echo "CHROME_PATH=/usr/bin/chromium-browser" >> $GITHUB_ENV
-          echo "CHROME_DRIVER_PATH=/usr/bin/chromedriver" >> $GITHUB_ENV
-      
-      - name: Verify Chrome
-        run: |
-          chromium-browser --version
-          chromedriver --version
       
       - name: Install Python packages
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install selenium==4.15.0 requests==2.31.0
       
-      - name: Run monitor
+      - name: Run monitor test
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python monitor.py
+        run: python monitor_test.py
       
-      - name: Upload debug artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-output
-          path: |
-            debug_*.html
-            debug_*.png
-            slot_count_state.txt
-          retention-days: 3
+      - name: Commit and push state file
+        if: always()
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add slot_state.json
+          git diff --staged --quiet || git commit -m "Update slot state [skip ci]"
+          git push
